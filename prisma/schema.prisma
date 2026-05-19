@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. USER MANAGEMENT 
+model User { 
+  id            String    @id @default(uuid()) 
+  name          String 
+  email         String?   @unique 
+  mobile        String    @unique 
+  password      String?
+  avatarUrl     String? 
+  healthScore   Int       @default(0) 
+  addresses     Address[] 
+  familyMembers Family[] 
+  bookings      Booking[] 
+  createdAt     DateTime  @default(now()) 
+} 
+
+model Address {
+  id        String  @id @default(uuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+  type      String  // HOME, WORK, etc.
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String
+  isDefault Boolean @default(false)
+}
+
+model Family {
+  id        String @id @default(uuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id])
+  name      String
+  relation  String
+  age       Int
+  gender    String
+}
+
+// 2. DYNAMIC CATALOG 
+model TestCategory { 
+  id          String    @id 
+  name        String    // e.g., "Blood", "Thyroid" 
+  iconName    String    // e.g., "water", "butterfly" 
+  tests       Test[] 
+  isActive    Boolean   @default(true) 
+} 
+
+model Test { 
+  id               String       @id @default(uuid()) 
+  name             String 
+  description      String 
+  price            Float 
+  discountedPrice  Float 
+  category         TestCategory @relation(fields: [categoryId], references: [id]) 
+  categoryId       String 
+  reportTime       String       // e.g., "12 Hours" 
+  fastingRequired  Boolean 
+  homeCollection   Boolean      @default(true) 
+  whyRequired      String?      @db.Text 
+  packages         PackageTest[] 
+  bookings         BookingTest[]
+} 
+
+// 3. DYNAMIC PACKAGES 
+model HealthPackage { 
+  id              String       @id @default(uuid()) 
+  name            String 
+  subtitle        String? 
+  price           Float 
+  oldPrice        Float 
+  parametersCount Int 
+  badge           String?      // e.g., "BEST SELLER" 
+  testsIncluded   PackageTest[] 
+  preparation     String? 
+  isActive        Boolean      @default(true) 
+  bookings        BookingPackage[]
+} 
+
+// Join table for Many-to-Many Packages to Tests 
+model PackageTest { 
+  packageId String 
+  testId    String 
+  package   HealthPackage @relation(fields: [packageId], references: [id]) 
+  test      Test          @relation(fields: [testId], references: [id]) 
+  @@id([packageId, testId]) 
+} 
+
+// 4. TRANSACTIONAL ENTITIES (Bookings & Reports) 
+model Booking { 
+  id             String        @id @default(cuid()) 
+  userId         String 
+  user           User          @relation(fields: [userId], references: [id]) 
+  scheduledDate  DateTime 
+  scheduledSlot  String 
+  totalPaid      Float 
+  status         BookingStatus @default(PENDING) // CONFIRMED, COMPLETED, CANCELLED 
+  addressId      String 
+  patientName    String 
+  report         Report? 
+  tests          BookingTest[]
+  packages       BookingPackage[]
+  createdAt      DateTime      @default(now()) 
+} 
+
+model BookingTest {
+  bookingId String
+  testId    String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  test      Test    @relation(fields: [testId], references: [id])
+  @@id([bookingId, testId])
+}
+
+model BookingPackage {
+  bookingId String
+  packageId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  package   HealthPackage @relation(fields: [packageId], references: [id])
+  @@id([bookingId, packageId])
+}
+
+enum BookingStatus { 
+  PENDING 
+  CONFIRMED 
+  COLLECTED 
+  PROCESSING 
+  COMPLETED 
+  CANCELLED 
+} 
+
+model Report { 
+  id               String         @id @default(uuid()) 
+  bookingId        String         @unique 
+  booking          Booking        @relation(fields: [bookingId], references: [id]) 
+  testName         String 
+  reportedDate     DateTime       @default(now()) 
+  status           ReportStatus   @default(DRAFT) 
+  clinicalNotes    String? 
+  hasAbnormalFlags Boolean        @default(false) 
+  parameters       ReportResult[] 
+} 
+
+enum ReportStatus { 
+  DRAFT 
+  UNDER_REVIEW 
+  RELEASED 
+} 
+
+model ReportResult { 
+  id             String @id @default(uuid()) 
+  reportId       String 
+  report         Report @relation(fields: [reportId], references: [id]) 
+  parameterName  String // e.g., "Hemoglobin" 
+  observedValue  String // e.g., "13.5" 
+  unit           String // e.g., "g/dL" 
+  referenceRange String // e.g., "12.0 - 15.0" 
+  isAbnormal     Boolean @default(false) 
+}
