@@ -97,3 +97,17 @@ export const login = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to login', details: error.message });
   }
 };
+
+export const getAllUsers = async (req: Request, res: Response) => {
+  try {
+    const users = await prisma.user.findMany({
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    res.json(users);
+  } catch (error: any) {
+    console.error('Error fetching registered users:', error);
+    res.status(500).json({ error: 'Failed to fetch registered users', details: error.message });
+  }
+};
