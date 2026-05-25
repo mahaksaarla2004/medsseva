@@ -103,6 +103,9 @@ export const getAllUsers = async (req: Request, res: Response) => {
     const users = await prisma.user.findMany({
       orderBy: {
         createdAt: 'desc'
+      },
+      include: {
+        familyMembers: true
       }
     });
     res.json(users);
