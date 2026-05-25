@@ -10,6 +10,7 @@ datasource db {
 // 1. USER MANAGEMENT 
 model User { 
   id            String    @id @default(uuid()) 
+  uhid          String?   @unique
   name          String 
   email         String?   @unique 
   mobile        String    @unique 
