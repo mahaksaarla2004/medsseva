@@ -68,3 +68,18 @@ export const addAddress = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to add address', details: error.message });
   }
 };
+
+export const deleteAddress = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const address = await prisma.address.delete({
+      where: { id }
+    });
+
+    res.json({ message: 'Address deleted successfully', address });
+  } catch (error: any) {
+    console.error('Error deleting address:', error);
+    res.status(500).json({ error: 'Failed to delete address', details: error.message });
+  }
+};

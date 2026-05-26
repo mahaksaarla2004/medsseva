@@ -18,10 +18,20 @@ model User {
   avatarUrl     String? 
   healthScore   Int       @default(0) 
   addresses     Address[] 
-  familyMembers Family[] 
-  bookings      Booking[] 
-  createdAt     DateTime  @default(now()) 
+  familyMembers  Family[] 
+  bookings       Booking[] 
+  paymentMethods PaymentMethod[]
+  createdAt      DateTime  @default(now()) 
 } 
+
+model City {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  icon      String   @default("city")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
 
 model Address {
   id        String  @id @default(uuid())
@@ -34,6 +44,18 @@ model Address {
   state     String
   pincode   String
   isDefault Boolean @default(false)
+}
+
+model PaymentMethod {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  bank      String
+  last4     String
+  holder    String
+  expiry    String
+  type      String   // 'slate' | 'teal' | 'blue'
+  createdAt DateTime @default(now())
 }
 
 model Family {

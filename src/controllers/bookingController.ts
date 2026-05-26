@@ -23,6 +23,9 @@ export const getAllBookings = async (req: Request, res: Response) => {
         },
         packages: {
           include: { package: true }
+        },
+        report: {
+          include: { parameters: true }
         }
       },
       orderBy: {
