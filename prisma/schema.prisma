@@ -98,8 +98,12 @@ model HealthPackage {
   id              String       @id @default(uuid()) 
   name            String 
   subtitle        String? 
+  category        String       @default("General")
+  categoryId      String       @default("general")
+  description     String?      @db.Text
   price           Float 
   oldPrice        Float 
+  discount        String?
   parametersCount Int 
   badge           String?      // e.g., "BEST SELLER" 
   testsIncluded   PackageTest[] 

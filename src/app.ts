@@ -8,6 +8,7 @@ import testRoutes from './routes/testRoutes';
 import userRoutes from './routes/userRoutes';
 import cityRoutes from './routes/cityRoutes';
 import paymentMethodRoutes from './routes/paymentMethodRoutes';
+import packageRoutes from './routes/packageRoutes';
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use('/api/tests', testRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/cities', cityRoutes);
 app.use('/api/payment-methods', paymentMethodRoutes);
+app.use('/api/packages', packageRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
