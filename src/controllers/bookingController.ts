@@ -5,10 +5,13 @@ import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || '',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || '',
-});
+let razorpay: any;
+if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+  razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+}
 
 export const getAllBookings = async (req: Request, res: Response) => {
   try {
@@ -59,6 +62,9 @@ export const getAllBookings = async (req: Request, res: Response) => {
 
 export const createRazorpayOrder = async (req: Request, res: Response) => {
   try {
+    if (!razorpay) {
+      throw new Error('Razorpay is not configured. Missing API keys in environment variables.');
+    }
     const { amount } = req.body;
 
     const options = {
