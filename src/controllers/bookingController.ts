@@ -1,7 +1,14 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import Razorpay from 'razorpay';
+import crypto from 'crypto';
 
 const prisma = new PrismaClient();
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || '',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || '',
+});
 
 export const getAllBookings = async (req: Request, res: Response) => {
   try {
@@ -50,10 +57,53 @@ export const getAllBookings = async (req: Request, res: Response) => {
   }
 };
 
+export const createRazorpayOrder = async (req: Request, res: Response) => {
+  try {
+    const { amount } = req.body;
+
+    const options = {
+      amount: Math.round(Number(amount) * 100), // convert to paise
+      currency: 'INR',
+      receipt: `receipt_${Date.now()}`,
+    };
+
+    const order = await razorpay.orders.create(options);
+    res.json(order);
+  } catch (error: any) {
+    console.error('Error creating Razorpay order:', error);
+    res.status(500).json({ error: 'Failed to create Razorpay order', details: error.message });
+  }
+};
+
 export const createBooking = async (req: Request, res: Response) => {
   try {
-    const { tests = [], scheduledDate, scheduledSlot, totalPaid, patientName, mobile, addressId } = req.body;
+    const { 
+      tests = [], 
+      scheduledDate, 
+      scheduledSlot, 
+      totalPaid, 
+      patientName, 
+      mobile, 
+      addressId,
+      razorpay_payment_id,
+      razorpay_order_id,
+      razorpay_signature,
+      paymentMethod
+    } = req.body;
     console.log('📦 Received Booking Payload:', req.body);
+
+    // Verify Payment Signature for Online Payments
+    if (razorpay_payment_id && razorpay_order_id && razorpay_signature) {
+      const body = razorpay_order_id + "|" + razorpay_payment_id;
+      const expectedSignature = crypto
+        .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || '')
+        .update(body.toString())
+        .digest('hex');
+
+      if (expectedSignature !== razorpay_signature) {
+        return res.status(400).json({ error: 'Invalid payment signature' });
+      }
+    }
 
     // 1. Find or create user
     const user = await prisma.user.upsert({
@@ -153,8 +203,10 @@ export const createBooking = async (req: Request, res: Response) => {
         scheduledSlot: scheduledSlot || 'Anytime',
         totalPaid: Number(totalPaid) || 0,
         patientName: patientName || 'Guest',
-        status: 'PENDING',
+        status: razorpay_payment_id ? 'CONFIRMED' : 'PENDING',
         addressId: finalAddressId,
+        paymentId: razorpay_payment_id || undefined,
+        razorpayOrderId: razorpay_order_id || undefined,
         tests: {
           create: tests.map((item: any) => ({
             testId: item.testId || item.id

@@ -1,8 +1,17 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateBookingStatus = exports.createBooking = exports.getAllBookings = void 0;
+exports.updateBookingStatus = exports.createBooking = exports.createRazorpayOrder = exports.getAllBookings = void 0;
 const client_1 = require("@prisma/client");
+const razorpay_1 = __importDefault(require("razorpay"));
+const crypto_1 = __importDefault(require("crypto"));
 const prisma = new client_1.PrismaClient();
+const razorpay = new razorpay_1.default({
+    key_id: process.env.RAZORPAY_KEY_ID || '',
+    key_secret: process.env.RAZORPAY_KEY_SECRET || '',
+});
 const getAllBookings = async (req, res) => {
     try {
         const { mobile, id } = req.query;
@@ -22,6 +31,9 @@ const getAllBookings = async (req, res) => {
                 },
                 packages: {
                     include: { package: true }
+                },
+                report: {
+                    include: { parameters: true }
                 }
             },
             orderBy: {
@@ -45,10 +57,38 @@ const getAllBookings = async (req, res) => {
     }
 };
 exports.getAllBookings = getAllBookings;
+const createRazorpayOrder = async (req, res) => {
+    try {
+        const { amount } = req.body;
+        const options = {
+            amount: Math.round(Number(amount) * 100), // convert to paise
+            currency: 'INR',
+            receipt: `receipt_${Date.now()}`,
+        };
+        const order = await razorpay.orders.create(options);
+        res.json(order);
+    }
+    catch (error) {
+        console.error('Error creating Razorpay order:', error);
+        res.status(500).json({ error: 'Failed to create Razorpay order', details: error.message });
+    }
+};
+exports.createRazorpayOrder = createRazorpayOrder;
 const createBooking = async (req, res) => {
     try {
-        const { tests = [], scheduledDate, scheduledSlot, totalPaid, patientName, mobile, addressId } = req.body;
+        const { tests = [], scheduledDate, scheduledSlot, totalPaid, patientName, mobile, addressId, razorpay_payment_id, razorpay_order_id, razorpay_signature, paymentMethod } = req.body;
         console.log('📦 Received Booking Payload:', req.body);
+        // Verify Payment Signature for Online Payments
+        if (razorpay_payment_id && razorpay_order_id && razorpay_signature) {
+            const body = razorpay_order_id + "|" + razorpay_payment_id;
+            const expectedSignature = crypto_1.default
+                .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || '')
+                .update(body.toString())
+                .digest('hex');
+            if (expectedSignature !== razorpay_signature) {
+                return res.status(400).json({ error: 'Invalid payment signature' });
+            }
+        }
         // 1. Find or create user
         const user = await prisma.user.upsert({
             where: { mobile },
@@ -144,8 +184,10 @@ const createBooking = async (req, res) => {
                 scheduledSlot: scheduledSlot || 'Anytime',
                 totalPaid: Number(totalPaid) || 0,
                 patientName: patientName || 'Guest',
-                status: 'PENDING',
+                status: razorpay_payment_id ? 'CONFIRMED' : 'PENDING',
                 addressId: finalAddressId,
+                paymentId: razorpay_payment_id || undefined,
+                razorpayOrderId: razorpay_order_id || undefined,
                 tests: {
                     create: tests.map((item) => ({
                         testId: item.testId || item.id

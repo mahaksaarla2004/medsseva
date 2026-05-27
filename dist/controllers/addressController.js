@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.addAddress = exports.getAddresses = void 0;
+exports.deleteAddress = exports.addAddress = exports.getAddresses = void 0;
 const client_1 = require("@prisma/client");
 const prisma = new client_1.PrismaClient();
 const getAddresses = async (req, res) => {
@@ -61,3 +61,17 @@ const addAddress = async (req, res) => {
     }
 };
 exports.addAddress = addAddress;
+const deleteAddress = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const address = await prisma.address.delete({
+            where: { id }
+        });
+        res.json({ message: 'Address deleted successfully', address });
+    }
+    catch (error) {
+        console.error('Error deleting address:', error);
+        res.status(500).json({ error: 'Failed to delete address', details: error.message });
+    }
+};
+exports.deleteAddress = deleteAddress;

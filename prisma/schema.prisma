@@ -129,9 +129,11 @@ model Booking {
   scheduledDate  DateTime 
   scheduledSlot  String 
   totalPaid      Float 
-  status         BookingStatus @default(PENDING) // CONFIRMED, COMPLETED, CANCELLED 
+  status         BookingStatus @default(PENDING) // CONFIRMED, COLLECTED, PROCESSING, COMPLETED, CANCELLED 
   addressId      String 
   patientName    String 
+  paymentId      String?
+  razorpayOrderId String?
   report         Report? 
   tests          BookingTest[]
   packages       BookingPackage[]

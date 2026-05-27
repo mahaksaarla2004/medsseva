@@ -6,4 +6,5 @@ const router = (0, express_1.Router)();
 router.get('/', bookingController_1.getAllBookings);
 router.post('/', bookingController_1.createBooking);
 router.patch('/:id/status', bookingController_1.updateBookingStatus);
+router.post('/razorpay/create-order', bookingController_1.createRazorpayOrder);
 exports.default = router;
