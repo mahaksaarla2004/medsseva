@@ -6,11 +6,11 @@ export const validateRequest = (schema: ZodSchema) => {
     try {
       schema.parse(req.body);
       next();
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map(e => ({
+          details: error.errors.map((e: any) => ({
             field: e.path.join('.'),
             message: e.message
           }))
