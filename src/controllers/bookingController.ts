@@ -13,13 +13,20 @@ if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
   });
 }
 
-export const getAllBookings = async (req: Request, res: Response) => {
+export const getAllBookings = async (req: any, res: Response) => {
   try {
     const { mobile, id } = req.query;
     const where: any = {};
-    if (mobile) {
-      where.user = { mobile: String(mobile) };
+    
+    // IDOR Protection: If user is not ADMIN, force the query to only return their bookings
+    if (req.user && req.user.role !== 'ADMIN') {
+      where.userId = req.user.id;
+    } else {
+      if (mobile) {
+        where.user = { mobile: String(mobile) };
+      }
     }
+
     if (id) {
       where.id = String(id);
     }
@@ -210,6 +217,7 @@ export const createBooking = async (req: Request, res: Response) => {
         totalPaid: Number(totalPaid) || 0,
         patientName: patientName || 'Guest',
         status: razorpay_payment_id ? 'CONFIRMED' : 'PENDING',
+        paymentStatus: razorpay_payment_id ? 'SUCCESS' : 'PENDING',
         addressId: finalAddressId,
         paymentId: razorpay_payment_id || undefined,
         razorpayOrderId: razorpay_order_id || undefined,
@@ -252,5 +260,25 @@ export const updateBookingStatus = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Failed to update booking status:', error);
     res.status(500).json({ error: 'Failed to update status', details: error.message });
+  }
+};
+
+export const updatePaymentStatus = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { paymentStatus } = req.body;
+    
+    // Ensure status matches Prisma enum (uppercase)
+    const upperPaymentStatus = paymentStatus ? paymentStatus.toUpperCase() : undefined;
+
+    const booking = await prisma.booking.update({
+      where: { id },
+      data: { paymentStatus: upperPaymentStatus },
+    });
+    
+    res.json(booking);
+  } catch (error: any) {
+    console.error('Failed to update payment status:', error);
+    res.status(500).json({ error: 'Failed to update payment status', details: error.message });
   }
 };

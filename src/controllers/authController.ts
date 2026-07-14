@@ -34,11 +34,11 @@ export const register = async (req: Request, res: Response) => {
       }
     });
 
-    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
 
     res.status(201).json({
       message: 'Registration successful',
-      user: { id: user.id, name: user.name, mobile: user.mobile, email: user.email },
+      user: { id: user.id, name: user.name, mobile: user.mobile, email: user.email, role: user.role },
       token
     });
   } catch (error: any) {
@@ -84,11 +84,11 @@ export const login = async (req: Request, res: Response) => {
       }
     }
 
-    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
 
     res.json({
       message: isNewUser ? 'Auto-registration & Login successful' : 'Login successful',
-      user: { id: user.id, name: user.name, mobile: user.mobile, email: user.email },
+      user: { id: user.id, name: user.name, mobile: user.mobile, email: user.email, role: user.role },
       token,
       isNewUser
     });

@@ -21,6 +21,28 @@ export const getAllPackages = async (req: Request, res: Response) => {
   }
 };
 
+export const getPackageById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const pkg = await prisma.healthPackage.findUnique({
+      where: { id },
+      include: {
+        testsIncluded: {
+          include: {
+            test: true
+          }
+        }
+      },
+    });
+    if (!pkg) {
+      return res.status(404).json({ error: 'Package not found' });
+    }
+    res.json(pkg);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch package', details: error.message });
+  }
+};
+
 export const createPackage = async (req: Request, res: Response) => {
   try {
     const { 

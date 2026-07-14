@@ -8,6 +8,12 @@ datasource db {
 }
 
 // 1. USER MANAGEMENT 
+enum Role {
+  USER
+  ADMIN
+  PATHOLOGIST
+}
+
 model User { 
   id            String    @id @default(uuid()) 
   uhid          String?   @unique
@@ -15,13 +21,15 @@ model User {
   email         String?   @unique 
   mobile        String    @unique 
   password      String?
+  role          Role      @default(USER)
   avatarUrl     String? 
   healthScore   Int       @default(0) 
   addresses     Address[] 
-  familyMembers  Family[] 
-  bookings       Booking[] 
+  familyMembers Family[] 
+  bookings      Booking[] 
   paymentMethods PaymentMethod[]
-  createdAt      DateTime  @default(now()) 
+  verifiedReports Report[] @relation("ReportVerifier")
+  createdAt     DateTime  @default(now()) 
 } 
 
 model City {
@@ -91,6 +99,22 @@ model Test {
   whyRequired      String?      @db.Text 
   packages         PackageTest[] 
   bookings         BookingTest[]
+  parameters       TestParameter[]
+
+  @@index([categoryId])
+} 
+
+model TestParameter {
+  id              String  @id @default(uuid())
+  testId          String
+  test            Test    @relation(fields: [testId], references: [id], onDelete: Cascade)
+  name            String  // e.g., "Hemoglobin"
+  unit            String  // e.g., "g/dL"
+  // Dynamic JSON to store ranges by age/gender without hardcoding columns
+  // e.g., [{"gender": "MALE", "minAge": 18, "maxRange": 17.0, "minRange": 13.0}]
+  referenceRanges Json
+  isActive        Boolean @default(true)
+  reportResults   ReportResult[]
 } 
 
 // 3. DYNAMIC PACKAGES 
@@ -134,10 +158,18 @@ model Booking {
   patientName    String 
   paymentId      String?
   razorpayOrderId String?
+  paymentStatus  PaymentStatus @default(PENDING)
   report         Report? 
   tests          BookingTest[]
   packages       BookingPackage[]
   createdAt      DateTime      @default(now()) 
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
 } 
 
 model BookingTest {
@@ -174,7 +206,12 @@ model Report {
   status           ReportStatus   @default(DRAFT) 
   clinicalNotes    String? 
   hasAbnormalFlags Boolean        @default(false) 
+  verifiedById     String?
+  verifiedBy       User?          @relation("ReportVerifier", fields: [verifiedById], references: [id])
+  verifiedAt       DateTime?
   parameters       ReportResult[] 
+
+  @@index([reportedDate])
 } 
 
 enum ReportStatus { 
@@ -186,10 +223,12 @@ enum ReportStatus {
 model ReportResult { 
   id             String @id @default(uuid()) 
   reportId       String 
-  report         Report @relation(fields: [reportId], references: [id]) 
+  report         Report @relation(fields: [reportId], references: [id])
+  parameterId    String?
+  parameter      TestParameter? @relation(fields: [parameterId], references: [id])
   parameterName  String // e.g., "Hemoglobin" 
   observedValue  String // e.g., "13.5" 
   unit           String // e.g., "g/dL" 
-  referenceRange String // e.g., "12.0 - 15.0" 
+  referenceRange String // e.g., "12.0 - 15.0" (snapshot of applied range)
   isAbnormal     Boolean @default(false) 
 }

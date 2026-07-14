@@ -8,11 +8,31 @@ export const getAllTests = async (req: Request, res: Response) => {
     const tests = await prisma.test.findMany({
       include: {
         category: true,
+        parameters: true,
       },
     });
     res.json(tests);
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to fetch tests', details: error.message });
+  }
+};
+
+export const getTestById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const test = await prisma.test.findUnique({
+      where: { id },
+      include: {
+        category: true,
+        parameters: true,
+      },
+    });
+    if (!test) {
+      return res.status(404).json({ error: 'Test not found' });
+    }
+    res.json(test);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch test', details: error.message });
   }
 };
 
@@ -54,5 +74,38 @@ export const createTest = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Failed to create test:', error);
     res.status(500).json({ error: 'Failed to create test', details: error.message });
+  }
+};
+
+// Test Parameters
+export const addTestParameter = async (req: Request, res: Response) => {
+  try {
+    const { testId } = req.params;
+    const { name, unit, referenceRanges } = req.body;
+
+    const parameter = await prisma.testParameter.create({
+      data: {
+        testId,
+        name,
+        unit,
+        referenceRanges,
+      }
+    });
+    res.status(201).json(parameter);
+  } catch (error: any) {
+    console.error('Failed to add parameter:', error);
+    res.status(500).json({ error: 'Failed to add parameter', details: error.message });
+  }
+};
+
+export const getTestParameters = async (req: Request, res: Response) => {
+  try {
+    const { testId } = req.params;
+    const parameters = await prisma.testParameter.findMany({
+      where: { testId },
+    });
+    res.json(parameters);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch parameters', details: error.message });
   }
 };
