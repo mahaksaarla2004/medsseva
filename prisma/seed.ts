@@ -1,11 +1,13 @@
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // 1. Clear existing data
+// 1. Clear existing data
+  await prisma.bookingTest.deleteMany();
   await prisma.test.deleteMany();
   await prisma.testCategory.deleteMany();
 
@@ -61,6 +63,36 @@ async function main() {
   });
 
   console.log('✅ Tests created');
+  console.log('✨ Database seeding completed!');// 4. Seed Admin User
+const hashedPassword = await bcrypt.hash('admin@123', 10);
+  const execPassword = await bcrypt.hash('exec@123', 10);
+
+  await prisma.user.upsert({
+    where: { mobile: '0000000000' },
+    update: {},
+    create: {
+      name: 'Super Admin',
+      email: 'admin@lms.com',
+      mobile: '0000000000',
+      password: hashedPassword,
+      role: 'ADMIN',
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { mobile: '9999999999' },
+    update: {},
+    create: {
+      name: 'Test Executive',
+      email: 'exec@lms.com',
+      mobile: '9999999999',
+      password: execPassword,
+      role: 'EXECUTIVE',
+    },
+  });
+
+  console.log('✅ Admin seeded — mobile: 0000000000 / password: admin@123');
+  console.log('✅ Executive seeded — mobile: 9999999999 / password: exec@123');
   console.log('✨ Database seeding completed!');
 }
 

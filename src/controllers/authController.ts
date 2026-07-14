@@ -19,21 +19,23 @@ export const register = async (req: Request, res: Response) => {
       }
     });
 
-    if (existingUser) {
-      return res.status(400).json({ error: 'User with this mobile or email already exists' });
+if (existingUser) {
+      if (existingUser.mobile === mobile) {
+        return res.status(400).json({ error: 'Mobile number already registered. Please login instead.' });
+      }
+      return res.status(400).json({ error: 'Email already in use. Try a different email.' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
 
     const user = await prisma.user.create({
       data: {
         name,
-        email,
+        email: email || undefined,
         mobile,
         password: hashedPassword
       }
     });
-
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
 
     res.status(201).json({
@@ -49,18 +51,24 @@ export const register = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
   try {
-    const { mobile, password } = req.body;
-    console.log(`🔑 Login Attempt: Mobile=${mobile}`);
+    const { mobile, email, password } = req.body;
+    console.log(`🔑 Login Attempt: Mobile/Email=${mobile || email}`);
 
-    let user = await prisma.user.findUnique({ where: { mobile } });
-    let isNewUser = false;
+let user = null;
+    if (mobile) {
+      user = await prisma.user.findUnique({ where: { mobile } });
+    } else if (email) {
+      user = await prisma.user.findUnique({ where: { email } });
+    }
 
     if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+   let isNewUser = false;
+
+    if (mobile && !user) {
       console.log(`✨ New User Detected! Auto-registering mobile=${mobile}...`);
-      
-      // Hash the entered password so it becomes their permanent login password
       const hashedPassword = await bcrypt.hash(password, 10);
-      
       user = await prisma.user.create({
         data: {
           name: `User ${mobile.slice(-4)}`,
@@ -70,7 +78,6 @@ export const login = async (req: Request, res: Response) => {
         }
       });
       isNewUser = true;
-      console.log(`✅ Auto-registration successful for user ID: ${user.id}`);
     } else {
       if (!user.password) {
         console.log('❌ User has no password set');
@@ -95,6 +102,33 @@ export const login = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Failed to login', details: error.message });
+  }
+};
+
+export const checkMobile = async (req: Request, res: Response) => {
+  try {
+    const { mobile } = req.query;
+
+    if (!mobile || typeof mobile !== 'string') {
+      return res.status(400).json({ error: 'Mobile number is required' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { mobile } });
+
+    if (user) {
+      // OTP already verified identity — issue a session token directly
+      const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
+      return res.json({
+        exists: true,
+        user: { id: user.id, name: user.name, mobile: user.mobile, email: user.email, role: user.role },
+        token
+      });
+    }
+
+    return res.json({ exists: false });
+  } catch (error: any) {
+    console.error('Check mobile error:', error);
+    res.status(500).json({ error: 'Failed to check mobile number', details: error.message });
   }
 };
 

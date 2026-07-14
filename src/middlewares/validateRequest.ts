@@ -3,18 +3,19 @@ import { ZodSchema, ZodError } from 'zod';
 
 export const validateRequest = (schema: ZodSchema) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    try {
+try {
+      console.log('🔍 Validating body:', JSON.stringify(req.body, null, 2));
       schema.parse(req.body);
       next();
     } catch (error: any) {
-      if (error instanceof ZodError) {
-        const zodError = error as any;
+if (error instanceof ZodError || (error as any)?.errors) {
+        const issues = (error as any).errors ?? (error as any).issues ?? [];
         return res.status(400).json({
           error: 'Validation failed',
-          details: zodError.errors.map((e: any) => ({
-            field: e.path.join('.'),
+          details: Array.isArray(issues) ? issues.map((e: any) => ({
+            field: Array.isArray(e.path) ? e.path.join('.') : '',
             message: e.message
-          }))
+          })) : []
         });
       }
       next(error);

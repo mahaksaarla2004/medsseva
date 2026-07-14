@@ -7,30 +7,25 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 1. USER MANAGEMENT 
-enum Role {
-  USER
-  ADMIN
-  PATHOLOGIST
+model User {
+  id                  String          @id @default(uuid())
+  uhid                String?         @unique
+  name                String
+  email               String?         @unique
+  mobile              String          @unique
+  password            String?
+  role                Role            @default(USER)
+  avatarUrl           String?
+  healthScore         Int             @default(0)
+  createdAt           DateTime        @default(now())
+  addresses           Address[]
+  bookings            Booking[]
+  familyMembers       Family[]
+  paymentMethods      PaymentMethod[]
+  verifiedReports     Report[]        @relation("ReportVerifier")
+  paymentsReceived    Booking[]       @relation("PaymentReceiver")
+  assignedCollections Booking[]       @relation("AssignedExecutive")
 }
-
-model User { 
-  id            String    @id @default(uuid()) 
-  uhid          String?   @unique
-  name          String 
-  email         String?   @unique 
-  mobile        String    @unique 
-  password      String?
-  role          Role      @default(USER)
-  avatarUrl     String? 
-  healthScore   Int       @default(0) 
-  addresses     Address[] 
-  familyMembers Family[] 
-  bookings      Booking[] 
-  paymentMethods PaymentMethod[]
-  verifiedReports Report[] @relation("ReportVerifier")
-  createdAt     DateTime  @default(now()) 
-} 
 
 model City {
   id        String   @id @default(uuid())
@@ -40,195 +35,216 @@ model City {
   createdAt DateTime @default(now())
 }
 
-
 model Address {
   id        String  @id @default(uuid())
   userId    String
-  user      User    @relation(fields: [userId], references: [id])
-  type      String  // HOME, WORK, etc.
+  type      String
   line1     String
   line2     String?
   city      String
   state     String
   pincode   String
   isDefault Boolean @default(false)
+  user      User    @relation(fields: [userId], references: [id])
 }
 
 model PaymentMethod {
   id        String   @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
   bank      String
   last4     String
   holder    String
   expiry    String
-  type      String   // 'slate' | 'teal' | 'blue'
+  type      String
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 }
 
 model Family {
-  id        String @id @default(uuid())
-  userId    String
-  user      User   @relation(fields: [userId], references: [id])
-  name      String
-  relation  String
-  age       Int
-  gender    String
+  id       String @id @default(uuid())
+  userId   String
+  name     String
+  relation String
+  age      Int
+  gender   String
+  user     User   @relation(fields: [userId], references: [id])
 }
 
-// 2. DYNAMIC CATALOG 
-model TestCategory { 
-  id          String    @id 
-  name        String    // e.g., "Blood", "Thyroid" 
-  iconName    String    // e.g., "water", "butterfly" 
-  tests       Test[] 
-  isActive    Boolean   @default(true) 
-} 
+model TestCategory {
+  id       String  @id
+  name     String
+  iconName String
+  isActive Boolean @default(true)
+  tests    Test[]
+}
 
-model Test { 
-  id               String       @id @default(uuid()) 
-  name             String 
-  description      String 
-  price            Float 
-  discountedPrice  Float 
-  category         TestCategory @relation(fields: [categoryId], references: [id]) 
-  categoryId       String 
-  reportTime       String       // e.g., "12 Hours" 
-  fastingRequired  Boolean 
-  homeCollection   Boolean      @default(true) 
-  whyRequired      String?      @db.Text 
-  packages         PackageTest[] 
-  bookings         BookingTest[]
-  parameters       TestParameter[]
+model Test {
+  id              String          @id @default(uuid())
+  name            String
+  description     String
+  price           Float
+  discountedPrice Float
+  categoryId      String
+  reportTime      String
+  fastingRequired Boolean
+  homeCollection  Boolean         @default(true)
+  whyRequired     String?
+  bookings        BookingTest[]
+  packages        PackageTest[]
+  category        TestCategory    @relation(fields: [categoryId], references: [id])
+  parameters      TestParameter[]
 
   @@index([categoryId])
-} 
-
-model TestParameter {
-  id              String  @id @default(uuid())
-  testId          String
-  test            Test    @relation(fields: [testId], references: [id], onDelete: Cascade)
-  name            String  // e.g., "Hemoglobin"
-  unit            String  // e.g., "g/dL"
-  // Dynamic JSON to store ranges by age/gender without hardcoding columns
-  // e.g., [{"gender": "MALE", "minAge": 18, "maxRange": 17.0, "minRange": 13.0}]
-  referenceRanges Json
-  isActive        Boolean @default(true)
-  reportResults   ReportResult[]
-} 
-
-// 3. DYNAMIC PACKAGES 
-model HealthPackage { 
-  id              String       @id @default(uuid()) 
-  name            String 
-  subtitle        String? 
-  category        String       @default("General")
-  categoryId      String       @default("general")
-  description     String?      @db.Text
-  price           Float 
-  oldPrice        Float 
-  discount        String?
-  parametersCount Int 
-  badge           String?      // e.g., "BEST SELLER" 
-  testsIncluded   PackageTest[] 
-  preparation     String? 
-  isActive        Boolean      @default(true) 
-  bookings        BookingPackage[]
-} 
-
-// Join table for Many-to-Many Packages to Tests 
-model PackageTest { 
-  packageId String 
-  testId    String 
-  package   HealthPackage @relation(fields: [packageId], references: [id]) 
-  test      Test          @relation(fields: [testId], references: [id]) 
-  @@id([packageId, testId]) 
-} 
-
-// 4. TRANSACTIONAL ENTITIES (Bookings & Reports) 
-model Booking { 
-  id             String        @id @default(cuid()) 
-  userId         String 
-  user           User          @relation(fields: [userId], references: [id]) 
-  scheduledDate  DateTime 
-  scheduledSlot  String 
-  totalPaid      Float 
-  status         BookingStatus @default(PENDING) // CONFIRMED, COLLECTED, PROCESSING, COMPLETED, CANCELLED 
-  addressId      String 
-  patientName    String 
-  paymentId      String?
-  razorpayOrderId String?
-  paymentStatus  PaymentStatus @default(PENDING)
-  report         Report? 
-  tests          BookingTest[]
-  packages       BookingPackage[]
-  createdAt      DateTime      @default(now()) 
 }
 
-enum PaymentStatus {
-  PENDING
-  SUCCESS
-  FAILED
-  REFUNDED
-} 
+model TestParameter {
+  id              String         @id @default(uuid())
+  testId          String
+  name            String
+  unit            String
+  referenceRanges Json
+  isActive        Boolean        @default(true)
+  reportResults   ReportResult[]
+  test            Test           @relation(fields: [testId], references: [id], onDelete: Cascade)
+}
+
+model HealthPackage {
+  id              String           @id @default(uuid())
+  name            String
+  subtitle        String?
+  category        String           @default("General")
+  categoryId      String           @default("general")
+  description     String?
+  price           Float
+  oldPrice        Float
+  discount        String?
+  parametersCount Int
+  badge           String?
+  preparation     String?
+  isActive        Boolean          @default(true)
+  bookings        BookingPackage[]
+  testsIncluded   PackageTest[]
+}
+
+model PackageTest {
+  packageId String
+  testId    String
+  package   HealthPackage @relation(fields: [packageId], references: [id])
+  test      Test          @relation(fields: [testId], references: [id])
+
+  @@id([packageId, testId])
+}
+
+model Booking {
+  id                   String              @id @default(cuid())
+  userId               String
+  scheduledDate        DateTime
+  scheduledSlot        String
+  totalPaid            Float
+  status               BookingStatus       @default(PENDING)
+  addressId            String
+  patientName          String
+  paymentId            String?
+  razorpayOrderId      String?
+  paymentStatus        PaymentStatus       @default(PENDING)
+  collectionMode       CollectionMode      @default(HOME)
+  paymentMode          PaymentMode?
+  paymentReceivedAt    DateTime?
+  paymentReceivedById  String?
+  assignedExecutiveId  String?
+  createdAt            DateTime            @default(now())
+  user                 User                @relation(fields: [userId], references: [id])
+  packages             BookingPackage[]
+  tests                BookingTest[]
+  report               Report?
+  paymentReceivedBy    User?               @relation("PaymentReceiver", fields: [paymentReceivedById], references: [id])
+  assignedExecutive    User?               @relation("AssignedExecutive", fields: [assignedExecutiveId], references: [id])
+}
 
 model BookingTest {
   bookingId String
   testId    String
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   test      Test    @relation(fields: [testId], references: [id])
+
   @@id([bookingId, testId])
 }
 
 model BookingPackage {
   bookingId String
   packageId String
-  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  booking   Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   package   HealthPackage @relation(fields: [packageId], references: [id])
+
   @@id([bookingId, packageId])
 }
 
-enum BookingStatus { 
-  PENDING 
-  CONFIRMED 
-  COLLECTED 
-  PROCESSING 
-  COMPLETED 
-  CANCELLED 
-} 
-
-model Report { 
-  id               String         @id @default(uuid()) 
-  bookingId        String         @unique 
-  booking          Booking        @relation(fields: [bookingId], references: [id]) 
-  testName         String 
-  reportedDate     DateTime       @default(now()) 
-  status           ReportStatus   @default(DRAFT) 
-  clinicalNotes    String? 
-  hasAbnormalFlags Boolean        @default(false) 
+model Report {
+  id               String         @id @default(uuid())
+  bookingId        String         @unique
+  testName         String
+  reportedDate     DateTime       @default(now())
+  status           ReportStatus   @default(DRAFT)
+  clinicalNotes    String?
+  hasAbnormalFlags Boolean        @default(false)
   verifiedById     String?
-  verifiedBy       User?          @relation("ReportVerifier", fields: [verifiedById], references: [id])
   verifiedAt       DateTime?
-  parameters       ReportResult[] 
+  booking          Booking        @relation(fields: [bookingId], references: [id])
+  verifiedBy       User?          @relation("ReportVerifier", fields: [verifiedById], references: [id])
+  parameters       ReportResult[]
 
   @@index([reportedDate])
-} 
+}
 
-enum ReportStatus { 
-  DRAFT 
-  UNDER_REVIEW 
-  RELEASED 
-} 
-
-model ReportResult { 
-  id             String @id @default(uuid()) 
-  reportId       String 
-  report         Report @relation(fields: [reportId], references: [id])
+model ReportResult {
+  id             String         @id @default(uuid())
+  reportId       String
   parameterId    String?
+  parameterName  String
+  observedValue  String
+  unit           String
+  referenceRange String
+  isAbnormal     Boolean        @default(false)
   parameter      TestParameter? @relation(fields: [parameterId], references: [id])
-  parameterName  String // e.g., "Hemoglobin" 
-  observedValue  String // e.g., "13.5" 
-  unit           String // e.g., "g/dL" 
-  referenceRange String // e.g., "12.0 - 15.0" (snapshot of applied range)
-  isAbnormal     Boolean @default(false) 
+  report         Report         @relation(fields: [reportId], references: [id])
+}
+
+enum Role {
+  USER
+  ADMIN
+  PATHOLOGIST
+  EXECUTIVE
+}
+
+enum CollectionMode {
+  HOME
+  LAB
+}
+
+enum PaymentMode {
+  CASH
+  UPI
+  QR_CODE
+  CARD
+}
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COLLECTED
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+enum ReportStatus {
+  DRAFT
+  UNDER_REVIEW
+  RELEASED
 }
