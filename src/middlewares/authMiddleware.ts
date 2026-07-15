@@ -1,18 +1,21 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
 
+const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-medsseva-key';
 
 export interface AuthRequest extends Request {
   user?: {
     id: string;
     role?: string;
+    permissions?: string[]; // e.g. ['bookings.view', 'reports.approve']
   };
 }
 
-export const authenticate = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
-  
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized: No token provided' });
   }
@@ -20,8 +23,27 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string, role?: string };
-    req.user = decoded;
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role?: string };
+    req.user = { id: decoded.id, role: decoded.role, permissions: [] };
+
+    // Load RBAC permissions for admin users
+    const adminUser = await prisma.adminUser.findUnique({
+      where: { userId: decoded.id },
+      include: {
+        role: {
+          include: {
+            permissions: { include: { permission: true } },
+          },
+        },
+      },
+    });
+
+    if (adminUser && adminUser.isActive) {
+      req.user.permissions = adminUser.role.permissions.map(
+        (rp) => `${rp.permission.module}.${rp.permission.action}`
+      );
+    }
+
     next();
   } catch (error) {
     return res.status(401).json({ error: 'Unauthorized: Invalid token' });
@@ -30,14 +52,12 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
 
 export const authorizeRoles = (...roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user || !req.user.role) {
+    if (!req.user?.role) {
       return res.status(403).json({ error: 'Forbidden: Role not assigned' });
     }
-    
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({ error: 'Forbidden: Insufficient privileges' });
     }
-    
     next();
   };
 };

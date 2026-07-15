@@ -14,5 +14,5 @@ app.listen(Number(PORT), '0.0.0.0', () => {
       }
     }
   }
-  console.log(`🚀 Backend server running on http://${localIP}:${PORT}`);
+  console.log(`Backend server running on http://${localIP}:${PORT}`);
 });

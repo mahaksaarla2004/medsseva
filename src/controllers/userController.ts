@@ -76,6 +76,43 @@ export const addFamilyMember = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const updateMe = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { name, email } = req.body;
+
+    // Only allow updating safe profile fields — mobile is identity, not editable here
+    const updateData: { name?: string; email?: string } = {};
+    if (name && typeof name === 'string' && name.trim().length > 1) {
+      updateData.name = name.trim();
+    }
+    if (email && typeof email === 'string' && email.includes('@')) {
+      updateData.email = email.trim().toLowerCase();
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'No valid fields provided to update.' });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: updateData,
+      include: { familyMembers: true },
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    // Unique constraint violation (e.g. email already taken)
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'This email is already in use by another account.' });
+    }
+    console.error('Error updating user profile:', error);
+    res.status(500).json({ error: 'Failed to update profile', details: error.message });
+  }
+};
+
 export const removeFamilyMember = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.id;

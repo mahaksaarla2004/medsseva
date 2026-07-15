@@ -13,17 +13,144 @@ if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
   });
 }
 
+// Lab working hours — all possible slots in a day
+const ALL_SLOTS = [
+  '06:00 AM - 07:00 AM',
+  '07:00 AM - 08:00 AM',
+  '08:00 AM - 09:00 AM',
+  '09:00 AM - 10:00 AM',
+  '10:00 AM - 11:00 AM',
+  '11:00 AM - 12:00 PM',
+  '12:00 PM - 01:00 PM',
+  '01:00 PM - 02:00 PM',
+  '02:00 PM - 03:00 PM',
+  '03:00 PM - 04:00 PM',
+  '04:00 PM - 05:00 PM',
+  '05:00 PM - 06:00 PM',
+  '06:00 PM - 07:00 PM',
+  '07:00 PM - 08:00 PM',
+  '08:00 PM - 09:00 PM',
+];
+
+/**
+ * Parses a slot string like "06:00 AM - 07:00 AM"
+ * Returns { startMinutes, endMinutes } as minutes from midnight
+ */
+const parseSlotMinutes = (slot: string): { startMinutes: number; endMinutes: number } | null => {
+  const parts = slot.split(' - ');
+  if (parts.length !== 2) return null;
+
+  const toMinutes = (timeStr: string): number => {
+    const [timePart, meridiem] = timeStr.trim().split(' ');
+    const [hourStr, minuteStr] = timePart.split(':');
+    let hour = parseInt(hourStr, 10);
+    const minute = parseInt(minuteStr, 10);
+    if (meridiem === 'PM' && hour !== 12) hour += 12;
+    if (meridiem === 'AM' && hour === 12) hour = 0;
+    return hour * 60 + minute;
+  };
+
+  return {
+    startMinutes: toMinutes(parts[0]),
+    endMinutes: toMinutes(parts[1]),
+  };
+};
+
+export const getAvailableSlots = async (req: Request, res: Response) => {
+  try {
+    const { date } = req.query;
+
+    if (!date || typeof date !== 'string') {
+      return res.status(400).json({ error: 'date query parameter is required (format: YYYY-MM-DD)' });
+    }
+
+    const requestedDate = new Date(date);
+    if (isNaN(requestedDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD.' });
+    }
+
+    // Reject past dates entirely
+    const now = new Date();
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const requestedMidnight = new Date(
+      requestedDate.getFullYear(),
+      requestedDate.getMonth(),
+      requestedDate.getDate()
+    );
+
+    if (requestedMidnight < todayMidnight) {
+      return res.status(400).json({
+        error: 'Cannot fetch slots for a past date.',
+        availableSlots: [],
+        isToday: false,
+      });
+    }
+
+    const isToday = requestedMidnight.getTime() === todayMidnight.getTime();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    // Filter slots: for today, remove slots whose start time has already passed
+    let availableSlots = ALL_SLOTS.filter((slot) => {
+      if (!isToday) return true; // future date — all slots valid
+      const parsed = parseSlotMinutes(slot);
+      if (!parsed) return false;
+      // Slot is valid only if its start time is strictly in the future
+      return parsed.startMinutes > currentMinutes;
+    });
+
+    // Remove slots that are already booked (prevent overbooking)
+    // Adjust MAX_BOOKINGS_PER_SLOT based on your lab capacity
+    const MAX_BOOKINGS_PER_SLOT = 5;
+
+    const bookingsForDate = await prisma.booking.findMany({
+      where: {
+        scheduledDate: {
+          gte: new Date(requestedMidnight),
+          lt: new Date(requestedMidnight.getTime() + 24 * 60 * 60 * 1000),
+        },
+        status: { notIn: ['CANCELLED'] },
+      },
+      select: { scheduledSlot: true },
+    });
+
+    // Count bookings per slot
+    const slotBookingCount: Record<string, number> = {};
+    for (const booking of bookingsForDate) {
+      slotBookingCount[booking.scheduledSlot] =
+        (slotBookingCount[booking.scheduledSlot] || 0) + 1;
+    }
+
+    // Remove fully booked slots
+    availableSlots = availableSlots.filter(
+      (slot) => (slotBookingCount[slot] || 0) < MAX_BOOKINGS_PER_SLOT
+    );
+
+    return res.json({
+      date,
+      isToday,
+      availableSlots,
+      totalSlotsForDay: ALL_SLOTS.length,
+      currentTime: isToday
+        ? `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
+        : null,
+    });
+  } catch (error: any) {
+    console.error('Error fetching available slots:', error);
+    res.status(500).json({ error: 'Failed to fetch available slots', details: error.message });
+  }
+};
+
 export const getAllBookings = async (req: any, res: Response) => {
   try {
     const { mobile, id } = req.query;
     const where: any = {};
     
 // Scoped visibility per role
-    if (req.user.role === 'EXECUTIVE') {
+if (req.user.role === 'EXECUTIVE') {
       // Executive sees only their assigned HOME bookings
       where.assignedExecutiveId = req.user.id;
       where.collectionMode = 'HOME';
-    } else if (req.user.role !== 'ADMIN' && req.user.role !== 'PATHOLOGIST') {
+    } else if (!['ADMIN', 'SUPER_ADMIN', 'PATHOLOGIST'].includes(req.user.role)) {
       // Regular USER sees only their own bookings
       where.userId = req.user.id;
     } else {
@@ -93,6 +220,13 @@ export const createRazorpayOrder = async (req: Request, res: Response) => {
   }
 };
 
+const mapPaymentMethodToMode = (paymentMethod: string | undefined): 'CASH' | 'UPI' | undefined => {
+  if (paymentMethod === 'cash') return 'CASH';
+  if (paymentMethod === 'upi') return 'UPI';
+  // 'lab_walkin' -> undefined, decided later at the branch counter
+  return undefined;
+};
+
 export const createBooking = async (req: any, res: Response) => {
   try {
   const { 
@@ -103,6 +237,7 @@ export const createBooking = async (req: any, res: Response) => {
       patientName, 
       mobile, 
       addressId,
+      branchId,
       collectionMode,
       razorpay_payment_id,
       razorpay_order_id,
@@ -167,19 +302,31 @@ export const createBooking = async (req: any, res: Response) => {
       }
     }
 
-  // 2. Fetch User's Default Address if none provided
+// 2. Resolve branch (LAB mode) or user address (HOME mode)
     let finalAddressId = addressId;
+    let finalBranchId: string | undefined;
+
     if (collectionMode === 'lab' || addressId === 'LAB_WALKIN') {
+      if (!branchId) {
+        return res.status(400).json({ error: 'branchId is required for Lab Visit bookings.' });
+      }
+      const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+      if (!branch || !branch.isActive) {
+        return res.status(400).json({ error: 'Selected branch is invalid or inactive.' });
+      }
+      finalBranchId = branch.id;
+
+      // Mirror branch address into an Address row so addressId stays valid
       const centerAddr = await prisma.address.findFirst({
-        where: { userId: user.id, type: 'CENTER' }
+        where: { userId: user.id, type: 'CENTER', line1: branch.line1 }
       }) || await prisma.address.create({
         data: {
           userId: user.id,
           type: 'CENTER',
-          line1: 'MedsSeva Hub - Central Plaza',
-          city: 'Mumbai',
-          state: 'Maharashtra',
-          pincode: '400001',
+          line1: branch.line1,
+          city: branch.city,
+          state: branch.state,
+          pincode: branch.pincode,
         }
       });
       finalAddressId = centerAddr.id;
@@ -230,6 +377,8 @@ export const createBooking = async (req: any, res: Response) => {
     }
 
 // 4. Create booking
+    const resolvedPaymentMode = mapPaymentMethodToMode(paymentMethod);
+
     const booking = await prisma.booking.create({
       data: {
         userId: user.id,
@@ -241,6 +390,8 @@ export const createBooking = async (req: any, res: Response) => {
         paymentStatus: razorpay_payment_id ? 'SUCCESS' : 'PENDING',
         collectionMode: safeCollectionMode as any,
         addressId: finalAddressId,
+        branchId: finalBranchId,
+        paymentMode: razorpay_payment_id ? 'UPI' : (resolvedPaymentMode as any),
         paymentId: razorpay_payment_id || undefined,
         razorpayOrderId: razorpay_order_id || undefined,
         tests: {
@@ -314,16 +465,14 @@ export const updatePaymentStatus = async (req: any, res: Response) => {
     const actorId = req.user.id;
 
     // Role-based permission check
+const isAdminLevel = ['ADMIN', 'SUPER_ADMIN', 'PATHOLOGIST'].includes(actorRole);
     if (booking.collectionMode === 'LAB') {
-      // Only ADMIN or PATHOLOGIST can mark payment for lab visit
-      if (!['ADMIN', 'PATHOLOGIST'].includes(actorRole)) {
+      if (!isAdminLevel) {
         return res.status(403).json({ error: 'Only Pathology Admin can mark payment received for Lab Visit bookings.' });
       }
     } else if (booking.collectionMode === 'HOME') {
-      // Only assigned EXECUTIVE or ADMIN can mark payment for home collection
       const isAssignedExecutive = actorRole === 'EXECUTIVE' && booking.assignedExecutiveId === actorId;
-      const isAdmin = actorRole === 'ADMIN';
-      if (!isAssignedExecutive && !isAdmin) {
+      if (!isAssignedExecutive && !isAdminLevel) {
         return res.status(403).json({ error: 'Only the assigned Collection Executive or Admin can mark payment for Home Collection bookings.' });
       }
     }
@@ -348,6 +497,127 @@ export const updatePaymentStatus = async (req: any, res: Response) => {
   }
 };
 
+export const generatePaymentLink = async (req: any, res: Response) => {
+  try {
+    if (!razorpay) {
+      return res.status(500).json({ error: 'Razorpay is not configured on the server.' });
+    }
+    const { id } = req.params;
+    const booking = await prisma.booking.findUnique({ where: { id }, include: { user: true } });
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+
+    if (booking.paymentStatus === 'SUCCESS') {
+      return res.status(400).json({ error: 'Payment has already been received for this booking.' });
+    }
+
+    const actorRole = req.user.role;
+    const actorId = req.user.id;
+    if (booking.collectionMode === 'LAB' && !['ADMIN', 'PATHOLOGIST'].includes(actorRole)) {
+      return res.status(403).json({ error: 'Only Admin/Pathologist can generate payment QR for Lab Visit bookings.' });
+    }
+    if (booking.collectionMode === 'HOME') {
+      const isAssignedExecutive = actorRole === 'EXECUTIVE' && booking.assignedExecutiveId === actorId;
+      if (!isAssignedExecutive && actorRole !== 'ADMIN') {
+        return res.status(403).json({ error: 'Only the assigned Executive or Admin can generate payment QR for Home Collection bookings.' });
+      }
+    }
+
+    const link = await razorpay.paymentLink.create({
+      amount: Math.round(Number(booking.totalPaid) * 100),
+      currency: 'INR',
+      description: `MedsSeva Booking #${booking.id.substring(0, 8).toUpperCase()}`,
+      customer: {
+        name: booking.patientName,
+        contact: booking.user.mobile,
+      },
+      notify: { sms: false, email: false },
+    });
+
+    await prisma.booking.update({
+      where: { id },
+      data: { paymentLinkId: link.id, paymentLinkUrl: link.short_url },
+    });
+
+    res.json({ paymentLinkId: link.id, paymentLinkUrl: link.short_url });
+  } catch (error: any) {
+    console.error('Failed to generate payment link:', error);
+    res.status(500).json({ error: 'Failed to generate payment QR', details: error.message });
+  }
+};
+
+export const checkPaymentLinkStatus = async (req: any, res: Response) => {
+  try {
+    if (!razorpay) {
+      return res.status(500).json({ error: 'Razorpay is not configured on the server.' });
+    }
+    const { id } = req.params;
+    const booking = await prisma.booking.findUnique({ where: { id } });
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+    if (!booking.paymentLinkId) {
+      return res.status(400).json({ error: 'No payment QR has been generated for this booking yet.' });
+    }
+
+    if (booking.paymentStatus === 'SUCCESS') {
+      return res.json({ paymentStatus: 'SUCCESS', booking });
+    }
+
+    const link = await razorpay.paymentLink.fetch(booking.paymentLinkId);
+
+    if (link.status === 'paid') {
+      const updated = await prisma.booking.update({
+        where: { id },
+        data: {
+          paymentStatus: 'SUCCESS',
+          paymentReceivedAt: new Date(),
+          paymentReceivedById: req.user.id,
+          status: 'CONFIRMED',
+        },
+      });
+      return res.json({ paymentStatus: 'SUCCESS', booking: updated });
+    }
+
+    res.json({ paymentStatus: 'PENDING', booking });
+  } catch (error: any) {
+    console.error('Failed to check payment link status:', error);
+    res.status(500).json({ error: 'Failed to verify payment', details: error.message });
+  }
+};
+
+export const collectSample = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const booking = await prisma.booking.findUnique({ where: { id } });
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+
+    const actorRole = req.user.role;
+    const actorId = req.user.id;
+
+const isAdminLevel = ['ADMIN', 'SUPER_ADMIN', 'PATHOLOGIST'].includes(actorRole);
+    if (booking.collectionMode === 'HOME') {
+      const isAssignedExecutive = actorRole === 'EXECUTIVE' && booking.assignedExecutiveId === actorId;
+      if (!isAssignedExecutive && !isAdminLevel) {
+        return res.status(403).json({ error: 'Only the assigned Executive or Admin can mark sample collected.' });
+      }
+    } else if (!isAdminLevel) {
+      return res.status(403).json({ error: 'Only Admin/Pathologist can mark sample collected for Lab Visit bookings.' });
+    }
+
+    if (booking.paymentStatus !== 'SUCCESS') {
+      return res.status(400).json({ error: 'Payment must be received before sample collection can begin.' });
+    }
+
+    const updated = await prisma.booking.update({
+      where: { id },
+      data: { status: 'COLLECTED' },
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error('Failed to mark sample collected:', error);
+    res.status(500).json({ error: 'Failed to mark sample collected', details: error.message });
+  }
+};
+
 export const assignExecutive = async (req: any, res: Response) => {
   try {
     const { id } = req.params;
@@ -357,8 +627,8 @@ export const assignExecutive = async (req: any, res: Response) => {
       return res.status(400).json({ error: 'executiveId is required.' });
     }
 
-    // Only ADMIN can assign
-    if (req.user.role !== 'ADMIN') {
+// Only ADMIN / SUPER_ADMIN can assign
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role)) {
       return res.status(403).json({ error: 'Only Admin can assign executives.' });
     }
 

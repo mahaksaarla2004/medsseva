@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getMe, addFamilyMember, removeFamilyMember } from '../controllers/userController';
+import { getMe, updateMe, addFamilyMember, removeFamilyMember } from '../controllers/userController';
 import { authenticate } from '../middlewares/authMiddleware';
 
 const router = Router();
@@ -8,6 +8,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/me', getMe);
+router.patch('/me', updateMe);
 router.post('/family', addFamilyMember);
 router.delete('/family/:id', removeFamilyMember);
 

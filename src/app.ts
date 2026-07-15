@@ -10,6 +10,9 @@ import cityRoutes from './routes/cityRoutes';
 import paymentMethodRoutes from './routes/paymentMethodRoutes';
 import packageRoutes from './routes/packageRoutes';
 import reportRoutes from './routes/reportRoutes';
+import roleRoutes from './routes/roleRoutes';
+import adminUserRoutes from './routes/adminUserRoutes';
+import branchRoutes from './routes/branchRoutes';
 import { globalLimiter } from './middlewares/rateLimiter';
 import { errorHandler } from './middlewares/errorHandler';
 
@@ -32,6 +35,9 @@ app.use('/api/cities', cityRoutes);
 app.use('/api/payment-methods', paymentMethodRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/roles', roleRoutes);
+app.use('/api/admin-users', adminUserRoutes);
+app.use('/api/branches', branchRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

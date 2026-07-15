@@ -25,6 +25,8 @@ model User {
   verifiedReports     Report[]        @relation("ReportVerifier")
   paymentsReceived    Booking[]       @relation("PaymentReceiver")
   assignedCollections Booking[]       @relation("AssignedExecutive")
+  adminUser           AdminUser?
+  auditLogs           AuditLog[]
 }
 
 model City {
@@ -143,9 +145,12 @@ model Booking {
   totalPaid            Float
   status               BookingStatus       @default(PENDING)
   addressId            String
+  branchId             String?
   patientName          String
   paymentId            String?
   razorpayOrderId      String?
+  paymentLinkId        String?
+  paymentLinkUrl       String?
   paymentStatus        PaymentStatus       @default(PENDING)
   collectionMode       CollectionMode      @default(HOME)
   paymentMode          PaymentMode?
@@ -154,6 +159,7 @@ model Booking {
   assignedExecutiveId  String?
   createdAt            DateTime            @default(now())
   user                 User                @relation(fields: [userId], references: [id])
+  branch               Branch?             @relation(fields: [branchId], references: [id])
   packages             BookingPackage[]
   tests                BookingTest[]
   report               Report?
@@ -161,6 +167,27 @@ model Booking {
   assignedExecutive    User?               @relation("AssignedExecutive", fields: [assignedExecutiveId], references: [id])
 }
 
+model Branch {
+  id                  String    @id @default(uuid())
+  name                String
+  code                String    @unique
+  line1               String
+  city                String
+  state               String
+  pincode             String
+  latitude            Float?
+  longitude           Float?
+  contactNumber       String?
+  email               String?
+  workingHours        String?
+  availableSlots      Json?
+  homeCollection      Boolean   @default(true)
+  labVisit            Boolean   @default(true)
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  bookings            Booking[]
+}
 model BookingTest {
   bookingId String
   testId    String
@@ -214,6 +241,65 @@ enum Role {
   ADMIN
   PATHOLOGIST
   EXECUTIVE
+  SUPER_ADMIN
+  FRANCHISE
+  LAB_DEPARTMENT
+}
+
+model AdminRole {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  slug        String           @unique
+  description String?
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions RolePermission[]
+  adminUsers  AdminUser[]
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  module      String
+  action      String
+  description String?
+  rolePerms   RolePermission[]
+
+  @@unique([module, action])
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  permissionId String
+  role         AdminRole  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+model AdminUser {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  roleId      String
+  franchiseId String?
+  department  String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        AdminRole @relation(fields: [roleId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String
+  module    String
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 }
 
 enum CollectionMode {
