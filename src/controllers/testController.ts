@@ -47,10 +47,11 @@ export const createTest = async (req: Request, res: Response) => {
 
     if (!category) {
       await prisma.testCategory.create({
-        data: {
+   data: {
           id: categoryId,
           name: categoryId,
           iconName: 'flask',
+          slug: categoryId,
         },
       });
     }

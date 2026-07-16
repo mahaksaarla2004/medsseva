@@ -226,6 +226,15 @@ const mapPaymentMethodToMode = (paymentMethod: string | undefined): 'CASH' | 'UP
   // 'lab_walkin' -> undefined, decided later at the branch counter
   return undefined;
 };
+const generateBookingCode = (): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const prefix = 'MS';
+  let code = prefix;
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+};
 
 export const createBooking = async (req: any, res: Response) => {
   try {
@@ -234,7 +243,9 @@ export const createBooking = async (req: any, res: Response) => {
       scheduledDate, 
       scheduledSlot, 
       totalPaid, 
-      patientName, 
+      patientName,
+      patientAge,
+      patientGender,
       mobile, 
       addressId,
       branchId,
@@ -244,7 +255,6 @@ export const createBooking = async (req: any, res: Response) => {
       razorpay_signature,
       paymentMethod
   } = req.body;
-
   const safeTests = Array.isArray(tests) ? tests : [];
     const safeCollectionMode = collectionMode === 'lab' ? 'LAB' : 'HOME';
     console.log('📦 Received Booking Payload:', req.body);
@@ -274,7 +284,7 @@ export const createBooking = async (req: any, res: Response) => {
     await prisma.testCategory.upsert({
       where: { id: 'general' },
       update: {},
-      create: { id: 'general', name: 'General', iconName: 'activity' }
+    create: { id: 'general', name: 'General', iconName: 'activity', slug: 'general' }
     });
 
     // 1.6 Upsert tests from frontend payload so relations work
@@ -379,13 +389,28 @@ export const createBooking = async (req: any, res: Response) => {
 // 4. Create booking
     const resolvedPaymentMode = mapPaymentMethodToMode(paymentMethod);
 
+// Generate unique booking code with collision check
+    let bookingCode = generateBookingCode();
+    let codeExists = await prisma.booking.findUnique({ where: { bookingCode } });
+    while (codeExists) {
+      bookingCode = generateBookingCode();
+      codeExists = await prisma.booking.findUnique({ where: { bookingCode } });
+    }
+
+const testItems = safeTests.filter((item: any) => item.itemType === 'test' || !item.itemType);
+    const packageItems = safeTests.filter((item: any) => item.itemType === 'package');
+
     const booking = await prisma.booking.create({
       data: {
+        bookingCode,
         userId: user.id,
         scheduledDate: parsedDate,
         scheduledSlot: scheduledSlot || 'Anytime',
         totalPaid: Number(totalPaid) || 0,
-        patientName: patientName || 'Guest',
+        patientName: patientName || user.name || 'Guest',
+        patientAge: patientAge ? Number(patientAge) : null,
+        patientGender: patientGender || null,
+        patientMobile: mobile || user.mobile || null,
         status: razorpay_payment_id ? 'CONFIRMED' : 'PENDING',
         paymentStatus: razorpay_payment_id ? 'SUCCESS' : 'PENDING',
         collectionMode: safeCollectionMode as any,
@@ -395,13 +420,19 @@ export const createBooking = async (req: any, res: Response) => {
         paymentId: razorpay_payment_id || undefined,
         razorpayOrderId: razorpay_order_id || undefined,
         tests: {
-          create: safeTests.map((item: any) => ({
+          create: testItems.map((item: any) => ({
             testId: item.testId || item.id
+          }))
+        },
+        packages: {
+          create: packageItems.map((item: any) => ({
+            packageId: item.id
           }))
         }
       },
-      include: {
-        tests: true
+  include: {
+        tests: true,
+        user: true,
       }
     });
     console.log('✅ Booking Created Successfully:', booking.id);

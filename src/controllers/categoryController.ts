@@ -23,7 +23,7 @@ export const createCategory = async (req: Request, res: Response) => {
   try {
     const { id, name, iconName } = req.body;
     const category = await prisma.testCategory.create({
-      data: { id, name, iconName }
+      data: { id, name, iconName, slug: name.toLowerCase().replace(/\s+/g, '-') }
     });
     res.status(201).json(category);
   } catch (error) {

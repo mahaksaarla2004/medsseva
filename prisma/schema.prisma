@@ -73,11 +73,15 @@ model Family {
 }
 
 model TestCategory {
-  id       String  @id
-  name     String
-  iconName String
-  isActive Boolean @default(true)
-  tests    Test[]
+  id           String  @id
+  name         String
+  iconName     String
+  iconUrl      String?
+  slug         String  @unique
+  testCount    String  @default("0+")
+  displayOrder Int     @default(0)
+  isActive     Boolean @default(true)
+  tests        Test[]
 }
 
 model Test {
@@ -90,13 +94,27 @@ model Test {
   reportTime      String
   fastingRequired Boolean
   homeCollection  Boolean         @default(true)
+  labVisit        Boolean         @default(true)
   whyRequired     String?
+  preparation     String?
+  imageUrl        String?
+  badge           String?
+  isFeatured      Boolean         @default(false)
+  isPopular       Boolean         @default(false)
+  isTrending      Boolean         @default(false)
+  displayOrder    Int             @default(0)
+  rating          Float           @default(0)
+  reviewCount     Int             @default(0)
+  isActive        Boolean         @default(true)
   bookings        BookingTest[]
   packages        PackageTest[]
   category        TestCategory    @relation(fields: [categoryId], references: [id])
   parameters      TestParameter[]
 
   @@index([categoryId])
+  @@index([isFeatured])
+  @@index([isPopular])
+  @@index([isTrending])
 }
 
 model TestParameter {
@@ -123,11 +141,18 @@ model HealthPackage {
   parametersCount Int
   badge           String?
   preparation     String?
-  isActive        Boolean          @default(true)
-  bookings        BookingPackage[]
-  testsIncluded   PackageTest[]
+  reportTime      String           @default("24 Hours")
+  fastingRequired Boolean          @default(false)
+  homeCollection  Boolean          @default(true)
+  labVisit        Boolean          @default(true)
+isFeatured      Boolean          @default(false)
+isPopular       Boolean          @default(false)
+isTrending      Boolean          @default(false)
+displayOrder    Int              @default(0)
+isActive        Boolean          @default(true)
+bookings        BookingPackage[]
+testsIncluded   PackageTest[]
 }
-
 model PackageTest {
   packageId String
   testId    String
@@ -139,6 +164,7 @@ model PackageTest {
 
 model Booking {
   id                   String              @id @default(cuid())
+  bookingCode          String              @unique
   userId               String
   scheduledDate        DateTime
   scheduledSlot        String
@@ -147,6 +173,9 @@ model Booking {
   addressId            String
   branchId             String?
   patientName          String
+  patientAge           Int?
+  patientGender        String?
+  patientMobile        String?
   paymentId            String?
   razorpayOrderId      String?
   paymentLinkId        String?
@@ -333,4 +362,35 @@ enum ReportStatus {
   DRAFT
   UNDER_REVIEW
   RELEASED
+}
+
+model Offer {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  bannerUrl   String?
+  offerType   String    @default("FLAT")
+  discount    Float
+  startDate   DateTime?
+  endDate     DateTime?
+  priority    Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Coupon {
+  id              String    @id @default(uuid())
+  code            String    @unique
+  description     String?
+  discountType    String    @default("FLAT")
+  discountValue   Float
+  minOrderAmount  Float     @default(0)
+  maxDiscount     Float?
+  usageLimit      Int?
+  usedCount       Int       @default(0)
+  expiresAt       DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
