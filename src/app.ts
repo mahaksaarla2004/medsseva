@@ -13,12 +13,22 @@ import reportRoutes from './routes/reportRoutes';
 import roleRoutes from './routes/roleRoutes';
 import adminUserRoutes from './routes/adminUserRoutes';
 import branchRoutes from './routes/branchRoutes';
+import partnerRoutes from './routes/partnerRoutes';
 import { globalLimiter } from './middlewares/rateLimiter';
 import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
 
 app.use(cors());
+
+// Raw body capture for Razorpay webhook signature verification
+// Must be registered BEFORE express.json()
+app.use('/api/bookings/webhook/razorpay', express.raw({ type: 'application/json' }), (req: any, res, next) => {
+  req.rawBody = req.body.toString('utf8');
+  req.body = JSON.parse(req.rawBody);
+  next();
+});
+
 app.use(express.json());
 
 // Global Rate Limiting
@@ -38,6 +48,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/admin-users', adminUserRoutes);
 app.use('/api/branches', branchRoutes);
+app.use('/api/partner', partnerRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

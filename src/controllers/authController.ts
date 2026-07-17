@@ -6,10 +6,61 @@ import jwt from 'jsonwebtoken';
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-medsseva-key';
 
+export const registerPartner = async (req: Request, res: Response) => {
+  try {
+    const { name, email, mobile, password, labName, role: partnerRole, cityId, branchId, address, latitude, longitude } = req.body;
+
+    if (!name || !mobile || !password || !labName || !partnerRole) {
+      return res.status(400).json({ error: 'name, mobile, password, labName, and role are required' });
+    }
+
+    const existing = await prisma.user.findFirst({
+      where: { OR: [{ mobile }, ...(email ? [{ email }] : [])] }
+    });
+
+    if (existing) {
+      return res.status(400).json({ error: existing.mobile === mobile ? 'Mobile already registered' : 'Email already in use' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email: email || undefined,
+        mobile,
+        password: hashedPassword,
+        role: 'PATHOLOGY_PARTNER'
+      }
+    });
+
+    await prisma.pathologyPartner.create({
+      data: {
+        userId: user.id,
+        labName,
+        role: partnerRole,
+        cityId: cityId || null,
+        branchId: branchId || null,
+        address: address || null,
+        latitude: latitude || null,
+        longitude: longitude || null,
+        approvalStatus: 'PENDING'
+      }
+    });
+
+    res.status(201).json({
+      message: 'Partner registration submitted. Awaiting admin approval.',
+      pendingApproval: true
+    });
+  } catch (error: any) {
+    console.error('Partner registration error:', error);
+    res.status(500).json({ error: 'Failed to register partner', details: error.message });
+  }
+};
+
 export const register = async (req: Request, res: Response) => {
   try {
     const { name, email, mobile, password } = req.body;
-
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
@@ -91,7 +142,42 @@ export const login = async (req: Request, res: Response) => {
       }
     }
 
-const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
+// Block PATHOLOGY_PARTNER from user login
+    if (user.role === 'PATHOLOGY_PARTNER') {
+      const partner = await prisma.pathologyPartner.findUnique({ where: { userId: user.id } });
+      if (!partner) return res.status(403).json({ error: 'Partner profile not found' });
+      if (partner.approvalStatus === 'PENDING') {
+        return res.status(403).json({ error: 'Your registration is pending admin approval.', pendingApproval: true });
+      }
+      if (partner.approvalStatus === 'REJECTED') {
+        return res.status(403).json({ error: `Registration rejected: ${partner.rejectionReason || 'Contact support.'}`, rejected: true, rejectionReason: partner.rejectionReason });
+      }
+      if (partner.approvalStatus === 'SUSPENDED') {
+        return res.status(403).json({ error: 'Your account has been suspended. Contact support.', suspended: true });
+      }
+
+      const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
+      return res.json({
+        message: 'Login successful',
+        user: {
+          id: user.id,
+          name: user.name,
+          mobile: user.mobile,
+          email: user.email,
+          role: user.role,
+          partner: {
+            id: partner.id,
+            labName: partner.labName,
+            approvalStatus: partner.approvalStatus,
+            isAvailable: partner.isAvailable,
+            rating: partner.rating
+          }
+        },
+        token
+      });
+    }
+
+    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
 
     // Load RBAC permissions if admin user
     let permissions: string[] = [];
@@ -323,6 +409,67 @@ export const deleteAdminUser = async (req: Request, res: Response) => {
  res.json({ message: 'Admin user deleted' });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to delete admin user', details: error.message });
+  }
+};
+
+export const getPartners = async (req: Request, res: Response) => {
+  try {
+    const { status } = req.query;
+    const partners = await prisma.pathologyPartner.findMany({
+      where: status ? { approvalStatus: status as any } : undefined,
+      include: {
+        user: { select: { id: true, name: true, email: true, mobile: true, createdAt: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(partners);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch partners', details: error.message });
+  }
+};
+
+export const updatePartnerApproval = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { approvalStatus, rejectionReason } = req.body;
+
+    const validStatuses = ['APPROVED', 'REJECTED', 'SUSPENDED', 'PENDING'];
+    if (!validStatuses.includes(approvalStatus)) {
+      return res.status(400).json({ error: 'Invalid approval status' });
+    }
+
+    if (approvalStatus === 'REJECTED' && !rejectionReason) {
+      return res.status(400).json({ error: 'Rejection reason is required' });
+    }
+
+    const partner = await prisma.pathologyPartner.update({
+      where: { id },
+      data: {
+        approvalStatus,
+        rejectionReason: approvalStatus === 'REJECTED' ? rejectionReason : null
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true, mobile: true } }
+      }
+    });
+
+    res.json({ message: `Partner ${approvalStatus.toLowerCase()} successfully`, partner });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to update partner status', details: error.message });
+  }
+};
+
+export const getAvailablePartners = async (req: Request, res: Response) => {
+  try {
+    const partners = await prisma.pathologyPartner.findMany({
+      where: { approvalStatus: 'APPROVED', isAvailable: true },
+      include: {
+        user: { select: { id: true, name: true, mobile: true, avatarUrl: true } }
+      }
+    });
+    res.json(partners);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch available partners', details: error.message });
   }
 };
 

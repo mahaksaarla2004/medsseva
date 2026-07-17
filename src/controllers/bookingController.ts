@@ -163,7 +163,7 @@ if (req.user.role === 'EXECUTIVE') {
       where.id = String(id);
     }
 
-    const bookings = await prisma.booking.findMany({
+const bookings = await prisma.booking.findMany({
       where,
       include: {
         user: true,
@@ -175,6 +175,20 @@ if (req.user.role === 'EXECUTIVE') {
         },
         report: {
           include: { parameters: true }
+        },
+        assignedPartner: {
+          include: {
+            user: {
+              select: {
+                name: true,
+                mobile: true,
+                avatarUrl: true,
+              }
+            }
+          }
+        },
+        statusTimeline: {
+          orderBy: { createdAt: 'asc' }
         }
       },
       orderBy: {
@@ -411,7 +425,9 @@ const testItems = safeTests.filter((item: any) => item.itemType === 'test' || !i
         patientAge: patientAge ? Number(patientAge) : null,
         patientGender: patientGender || null,
         patientMobile: mobile || user.mobile || null,
-        status: razorpay_payment_id ? 'CONFIRMED' : 'PENDING',
+    status: razorpay_payment_id
+          ? (safeCollectionMode === 'HOME' ? 'WAITING_FOR_PARTNER' : 'CONFIRMED')
+          : (safeCollectionMode === 'HOME' ? 'WAITING_FOR_PARTNER' : 'PENDING'),
         paymentStatus: razorpay_payment_id ? 'SUCCESS' : 'PENDING',
         collectionMode: safeCollectionMode as any,
         addressId: finalAddressId,
@@ -637,15 +653,233 @@ const isAdminLevel = ['ADMIN', 'SUPER_ADMIN', 'PATHOLOGIST'].includes(actorRole)
       return res.status(400).json({ error: 'Payment must be received before sample collection can begin.' });
     }
 
-    const updated = await prisma.booking.update({
+const updated = await prisma.booking.update({
       where: { id },
-      data: { status: 'COLLECTED' },
+      data: { status: 'SAMPLE_COLLECTED' },
+    });
+
+    await prisma.bookingStatusLog.create({
+      data: {
+        bookingId: id,
+        status: 'SAMPLE_COLLECTED',
+        note: 'Sample collected and confirmed',
+        updatedBy: actorId,
+      },
     });
 
     res.json(updated);
   } catch (error: any) {
     console.error('Failed to mark sample collected:', error);
     res.status(500).json({ error: 'Failed to mark sample collected', details: error.message });
+  }
+};
+
+export const assignPartner = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { partnerId } = req.body;
+
+    if (!partnerId) {
+      return res.status(400).json({ error: 'partnerId is required.' });
+    }
+
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Only Admin can assign partners.' });
+    }
+
+    const partner = await prisma.pathologyPartner.findUnique({
+      where: { id: partnerId },
+      include: { user: true }
+    });
+    if (!partner) return res.status(404).json({ error: 'Partner not found.' });
+    if (partner.approvalStatus !== 'APPROVED') {
+      return res.status(400).json({ error: 'Partner is not approved.' });
+    }
+    if (!partner.isAvailable) {
+      return res.status(400).json({ error: 'Partner is not currently available.' });
+    }
+
+    const booking = await prisma.booking.findUnique({ where: { id } });
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+    if (booking.collectionMode !== 'HOME') {
+      return res.status(400).json({ error: 'Partners can only be assigned to Home Collection bookings.' });
+    }
+
+    const updated = await prisma.booking.update({
+      where: { id },
+      data: {
+        assignedPartnerId: partnerId,
+        partnerAssignedAt: new Date(),
+        status: 'ASSIGNED',
+      },
+    });
+
+    await prisma.bookingStatusLog.create({
+      data: {
+        bookingId: id,
+        status: 'ASSIGNED',
+        note: `Partner ${partner.user.name} assigned`,
+        updatedBy: req.user.id,
+      }
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error('Failed to assign partner:', error);
+    res.status(500).json({ error: 'Failed to assign partner', details: error.message });
+  }
+};
+
+// Generate 4-digit OTP when partner accepts (pay-at-doorstep only)
+export const generateCollectionOtp = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const booking = await prisma.booking.findUnique({ where: { id } });
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+
+    // Only generate OTP if payment is still pending (pay at doorstep)
+    if (booking.paymentStatus === 'SUCCESS') {
+      return res.json({ otpRequired: false, message: 'Already paid online. No OTP needed.' });
+    }
+
+    // Generate only if not already generated
+    if (booking.collectionOtp) {
+      return res.json({ otpRequired: true, otp: booking.collectionOtp });
+    }
+
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    await prisma.booking.update({
+      where: { id },
+      data: { collectionOtp: otp },
+    });
+
+    res.json({ otpRequired: true, otp });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to generate OTP', details: error.message });
+  }
+};
+
+// Partner verifies OTP entered by user
+export const verifyCollectionOtp = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { otp } = req.body;
+
+    const partner = await prisma.pathologyPartner.findUnique({ where: { userId: req.user.id } });
+    if (!partner) return res.status(404).json({ error: 'Partner not found.' });
+
+    const booking = await prisma.booking.findUnique({ where: { id } });
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+    if (booking.assignedPartnerId !== partner.id) {
+      return res.status(403).json({ error: 'Not your booking.' });
+    }
+    if (booking.otpVerified) {
+      return res.json({ verified: true, message: 'OTP already verified.' });
+    }
+    if (booking.collectionOtp !== otp) {
+      return res.status(400).json({ error: 'Invalid OTP. Please ask the patient to check again.' });
+    }
+
+    await prisma.booking.update({
+      where: { id },
+      data: { otpVerified: true },
+    });
+
+    res.json({ verified: true, message: 'OTP verified. Payment screen unlocked.' });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to verify OTP', details: error.message });
+  }
+};
+
+// Razorpay Webhook — auto-updates payment status when UPI payment completes
+export const razorpayWebhook = async (req: Request, res: Response) => {
+  try {
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error('RAZORPAY_WEBHOOK_SECRET not set');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
+    // Verify webhook signature
+    const signature = req.headers['x-razorpay-signature'] as string;
+    const body = (req as any).rawBody; // raw body set by express middleware below
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(body)
+      .digest('hex');
+
+    if (signature !== expectedSignature) {
+      console.warn('Invalid Razorpay webhook signature');
+      return res.status(400).json({ error: 'Invalid signature' });
+    }
+
+    const event = req.body;
+    const eventType = event.event;
+
+    console.log(`📡 Razorpay Webhook: ${eventType}`);
+
+    // Payment link paid — UPI collection at doorstep
+    if (eventType === 'payment_link.paid') {
+      const paymentLinkId = event.payload?.payment_link?.entity?.id;
+      if (!paymentLinkId) return res.json({ status: 'ok' });
+
+      const booking = await prisma.booking.findFirst({
+        where: { paymentLinkId },
+      });
+
+      if (!booking) {
+        console.warn(`No booking found for paymentLinkId: ${paymentLinkId}`);
+        return res.json({ status: 'ok' });
+      }
+
+      if (booking.paymentStatus !== 'SUCCESS') {
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: {
+            paymentStatus: 'SUCCESS',
+            paymentMode: 'UPI',
+            paymentReceivedAt: new Date(),
+          },
+        });
+
+        await prisma.bookingStatusLog.create({
+          data: {
+            bookingId: booking.id,
+            status: booking.status as any,
+            note: 'UPI payment confirmed via Razorpay webhook',
+          },
+        });
+
+        console.log(`✅ Payment auto-confirmed for booking ${booking.id} via webhook`);
+      }
+
+      return res.json({ status: 'ok' });
+    }
+
+    // Payment failed
+    if (eventType === 'payment.failed') {
+      const paymentLinkId = event.payload?.payment?.entity?.payment_link_id;
+      if (paymentLinkId) {
+        const booking = await prisma.booking.findFirst({ where: { paymentLinkId } });
+        if (booking && booking.paymentStatus !== 'SUCCESS') {
+          await prisma.bookingStatusLog.create({
+            data: {
+              bookingId: booking.id,
+              status: booking.status as any,
+              note: `UPI payment failed: ${event.payload?.payment?.entity?.error_description || 'Unknown error'}`,
+            },
+          });
+          console.warn(`❌ Payment failed for booking ${booking.id}`);
+        }
+      }
+      return res.json({ status: 'ok' });
+    }
+
+    // All other events — acknowledge
+    res.json({ status: 'ok' });
+  } catch (error: any) {
+    console.error('Webhook error:', error);
+    res.status(500).json({ error: 'Webhook processing failed', details: error.message });
   }
 };
 

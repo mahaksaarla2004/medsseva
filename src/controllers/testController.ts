@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
@@ -56,9 +57,8 @@ export const createTest = async (req: Request, res: Response) => {
       });
     }
 
-    const test = await prisma.test.create({
+   const test = await prisma.test.create({
       data: {
-        id,
         name,
         description: description || '',
         price: Number(price),
@@ -108,5 +108,80 @@ export const getTestParameters = async (req: Request, res: Response) => {
     res.json(parameters);
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to fetch parameters', details: error.message });
+  }
+};
+
+export const updateTest = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, description, price, discountedPrice, categoryId, reportTime, fastingRequired, homeCollection, whyRequired } = req.body;
+
+const existing = await prisma.test.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ error: 'Test not found' });
+    }
+
+    // Resolve categoryId: may arrive as a name string (e.g. "Fever") instead of a UUID
+    let resolvedCategoryId = categoryId;
+    if (categoryId !== undefined) {
+      // First try direct UUID lookup
+      const categoryById = await prisma.testCategory.findUnique({
+        where: { id: categoryId },
+      });
+
+   if (!categoryById) {
+        const slug = categoryId.toLowerCase().replace(/\s+/g, '-');
+
+        // Fallback 1: match by name (case-insensitive)
+        // Fallback 2: match by slug (handles casing issues)
+        const categoryByName = await prisma.testCategory.findFirst({
+          where: {
+            OR: [
+              { name: { equals: categoryId, mode: 'insensitive' } },
+              { slug: { equals: slug, mode: 'insensitive' } },
+            ],
+          },
+        });
+
+        if (categoryByName) {
+          resolvedCategoryId = categoryByName.id;
+        } else {
+          // Auto-create only if truly not found anywhere
+          const created = await prisma.testCategory.create({
+            data: {
+              id: crypto.randomUUID(),
+              name: categoryId,
+              iconName: 'flask',
+              slug,
+            },
+          });
+          resolvedCategoryId = created.id;
+        }
+      }
+    }
+
+    const updated = await prisma.test.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(description !== undefined && { description }),
+        ...(price !== undefined && { price: Number(price) }),
+        ...(discountedPrice !== undefined && { discountedPrice: Number(discountedPrice) }),
+        ...(categoryId !== undefined && { categoryId: resolvedCategoryId }),
+        ...(reportTime !== undefined && { reportTime }),
+        ...(fastingRequired !== undefined && { fastingRequired: !!fastingRequired }),
+        ...(homeCollection !== undefined && { homeCollection: !!homeCollection }),
+        ...(whyRequired !== undefined && { whyRequired }),
+      },
+      include: {
+        category: true,
+        parameters: true,
+      },
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error('Failed to update test:', error);
+    res.status(500).json({ error: 'Failed to update test', details: error.message });
   }
 };

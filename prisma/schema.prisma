@@ -25,10 +25,10 @@ model User {
   verifiedReports     Report[]        @relation("ReportVerifier")
   paymentsReceived    Booking[]       @relation("PaymentReceiver")
   assignedCollections Booking[]       @relation("AssignedExecutive")
-  adminUser           AdminUser?
+adminUser           AdminUser?
   auditLogs           AuditLog[]
+  pathologyPartner    PathologyPartner?
 }
-
 model City {
   id        String   @id @default(uuid())
   name      String   @unique
@@ -185,7 +185,16 @@ model Booking {
   paymentMode          PaymentMode?
   paymentReceivedAt    DateTime?
   paymentReceivedById  String?
-  assignedExecutiveId  String?
+assignedExecutiveId  String?
+  assignedPartnerId    String?
+  partnerAssignedAt    DateTime?
+  partnerAcceptedAt    DateTime?
+  collectionStartedAt  DateTime?
+  sampleCollectedAt    DateTime?
+  deliveredToLabAt     DateTime?
+partnerNote          String?
+  collectionOtp        String?
+  otpVerified          Boolean             @default(false)
   createdAt            DateTime            @default(now())
   user                 User                @relation(fields: [userId], references: [id])
   branch               Branch?             @relation(fields: [branchId], references: [id])
@@ -194,8 +203,10 @@ model Booking {
   report               Report?
   paymentReceivedBy    User?               @relation("PaymentReceiver", fields: [paymentReceivedById], references: [id])
   assignedExecutive    User?               @relation("AssignedExecutive", fields: [assignedExecutiveId], references: [id])
+  assignedPartner      PathologyPartner?   @relation("AssignedPartner", fields: [assignedPartnerId], references: [id])
+statusTimeline       BookingStatusLog[]
+  rejections           BookingRejection[]
 }
-
 model Branch {
   id                  String    @id @default(uuid())
   name                String
@@ -273,8 +284,8 @@ enum Role {
   SUPER_ADMIN
   FRANCHISE
   LAB_DEPARTMENT
+  PATHOLOGY_PARTNER
 }
-
 model AdminRole {
   id          String           @id @default(uuid())
   name        String           @unique
@@ -352,10 +363,28 @@ enum PaymentStatus {
 enum BookingStatus {
   PENDING
   CONFIRMED
-  COLLECTED
+ WAITING_FOR_ASSIGNMENT
+  WAITING_FOR_PARTNER
+  ASSIGNED
+  ACCEPTED
+  ON_THE_WAY
+  REACHED_LOCATION
+  SAMPLE_COLLECTED
+  DELIVERED_TO_LAB
   PROCESSING
+  REPORT_READY
   COMPLETED
   CANCELLED
+}
+
+model BookingStatusLog {
+  id        String        @id @default(uuid())
+  bookingId String
+  status    BookingStatus
+  note      String?
+  updatedBy String?
+  createdAt DateTime      @default(now())
+  booking   Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 }
 
 enum ReportStatus {
@@ -377,6 +406,45 @@ model Offer {
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+model PathologyPartner {
+  id             String                @id @default(uuid())
+  userId         String                @unique
+  labName        String
+  role           String
+  cityId         String?
+  branchId       String?
+  address        String?
+  latitude       Float?
+  longitude      Float?
+  approvalStatus PartnerApprovalStatus @default(PENDING)
+  rejectionReason String?
+  isAvailable    Boolean               @default(false)
+  rating         Float                 @default(0)
+  totalCollections Int                 @default(0)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookings       Booking[]             @relation("AssignedPartner")
+}
+
+enum PartnerApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+model BookingRejection {
+  id        String   @id @default(uuid())
+  bookingId String
+  partnerId String
+  reason    String?
+  createdAt DateTime @default(now())
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, partnerId])
 }
 
 model Coupon {
