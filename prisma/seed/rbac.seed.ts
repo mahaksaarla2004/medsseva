@@ -134,7 +134,7 @@ export async function seedRbac(prisma: PrismaClient) {
     where: { mobile: '9999999999' },
     update: {},
     create: {
-      name: 'MedSeva Super Admin',
+      name: 'MedsSeva Super Admin',
       email: 'superadmin@medseva.in',
       mobile: '9999999999',
       password: hashedPassword,

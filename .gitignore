@@ -47,16 +47,18 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
-# Firebase
+# Firebase / Service Account Keys
 firebase-adminsdk*.json
 serviceAccountKey.json
+serviceAccountKey*.json
+*-service-account.json
+service-account*.json
 
 # Uploads (if generated at runtime)
 uploads/
 public/uploads/
 
 # Test Coverage
-coverage/
 .nyc_output/
 
 # Misc

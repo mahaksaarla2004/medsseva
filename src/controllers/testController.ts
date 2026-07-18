@@ -57,7 +57,9 @@ export const createTest = async (req: Request, res: Response) => {
       });
     }
 
-   const test = await prisma.test.create({
+const { parameters } = req.body;
+
+    const test = await prisma.test.create({
       data: {
         name,
         description: description || '',
@@ -68,7 +70,17 @@ export const createTest = async (req: Request, res: Response) => {
         fastingRequired: !!fastingRequired,
         homeCollection: homeCollection !== undefined ? !!homeCollection : true,
         whyRequired: whyRequired || '',
+        ...(Array.isArray(parameters) && parameters.length > 0 && {
+          parameters: {
+            create: parameters.map((p: any) => ({
+              name: p.name,
+              unit: p.unit,
+              referenceRanges: p.referenceRanges,
+            })),
+          },
+        }),
       },
+      include: { parameters: true },
     });
 
     res.status(201).json(test);
@@ -160,6 +172,12 @@ const existing = await prisma.test.findUnique({ where: { id } });
       }
     }
 
+const { parameters } = req.body;
+
+    if (Array.isArray(parameters)) {
+      await prisma.testParameter.deleteMany({ where: { testId: id } });
+    }
+
     const updated = await prisma.test.update({
       where: { id },
       data: {
@@ -172,6 +190,15 @@ const existing = await prisma.test.findUnique({ where: { id } });
         ...(fastingRequired !== undefined && { fastingRequired: !!fastingRequired }),
         ...(homeCollection !== undefined && { homeCollection: !!homeCollection }),
         ...(whyRequired !== undefined && { whyRequired }),
+        ...(Array.isArray(parameters) && {
+          parameters: {
+            create: parameters.map((p: any) => ({
+              name: p.name,
+              unit: p.unit,
+              referenceRanges: p.referenceRanges,
+            })),
+          },
+        }),
       },
       include: {
         category: true,

@@ -12,7 +12,7 @@ import { seedRbac } from './rbac.seed';
 const prisma = new PrismaClient();
 
 export async function main() {
-  console.log('🌱 Starting MedSeva production seed...\n');
+  console.log('🌱 Starting MedsSeva production seed...\n');
 
   try {
     // Order matters — categories before tests, rbac before admin user

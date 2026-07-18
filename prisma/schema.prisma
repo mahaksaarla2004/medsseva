@@ -219,6 +219,7 @@ model Branch {
   longitude           Float?
   contactNumber       String?
   email               String?
+  labRegNo            String?
   workingHours        String?
   availableSlots      Json?
   homeCollection      Boolean   @default(true)
@@ -227,6 +228,7 @@ model Branch {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   bookings            Booking[]
+  reports             Report[]  @relation("ReportBranch")
 }
 model BookingTest {
   bookingId String
@@ -245,24 +247,38 @@ model BookingPackage {
 
   @@id([bookingId, packageId])
 }
-
 model Report {
-  id               String         @id @default(uuid())
-  bookingId        String         @unique
-  testName         String
-  reportedDate     DateTime       @default(now())
-  status           ReportStatus   @default(DRAFT)
-  clinicalNotes    String?
-  hasAbnormalFlags Boolean        @default(false)
-  verifiedById     String?
-  verifiedAt       DateTime?
-  booking          Booking        @relation(fields: [bookingId], references: [id])
-  verifiedBy       User?          @relation("ReportVerifier", fields: [verifiedById], references: [id])
-  parameters       ReportResult[]
+  id                   String           @id @default(uuid())
+  bookingId            String           @unique
+  testName             String
+  reportedDate         DateTime         @default(now())
+  status               ReportStatus     @default(DRAFT)
+  clinicalNotes        String?
+  technicianRemarks    String?
+  doctorRemarks        String?
+  internalNotes        String?
+  hasAbnormalFlags     Boolean          @default(false)
+  verifiedById         String?
+  verifiedAt           DateTime?
+  recipientType        String?
+  recipientId          String?
+  pdfUrl               String?
+  pdfPublicId          String?
+  pdfUploadedAt        DateTime?
+  reportBranchId       String?
+  doctorName           String?
+  doctorQualification  String?
+  doctorRegNo          String?
+  doctorDesignation    String?
+  doctorVerifiedAt     DateTime?
+  booking              Booking          @relation(fields: [bookingId], references: [id])
+  verifiedBy           User?            @relation("ReportVerifier", fields: [verifiedById], references: [id])
+  reportBranch         Branch?          @relation("ReportBranch", fields: [reportBranchId], references: [id])
+  parameters           ReportResult[]
+  auditLogs            ReportAuditLog[]
 
   @@index([reportedDate])
 }
-
 model ReportResult {
   id             String         @id @default(uuid())
   reportId       String
@@ -390,7 +406,18 @@ model BookingStatusLog {
 enum ReportStatus {
   DRAFT
   UNDER_REVIEW
+  APPROVED
   RELEASED
+}
+
+model ReportAuditLog {
+  id         String   @id @default(uuid())
+  reportId   String
+  action     String
+  performedBy String
+  details    String?
+  createdAt  DateTime @default(now())
+  report     Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
 }
 
 model Offer {

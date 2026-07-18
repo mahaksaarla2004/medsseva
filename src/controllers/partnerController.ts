@@ -431,7 +431,7 @@ export const initiateUpiCollection = async (req: any, res: Response) => {
       link = await razorpay.paymentLink.create({
         amount: amountPaise,
         currency: 'INR',
-        description: `MedSeva Booking #${booking.bookingCode}`,
+        description: `MedsSeva Booking #${booking.bookingCode}`,
         customer: {
           name: booking.patientName,
           contact: booking.user?.mobile ?? '',
